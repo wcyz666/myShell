@@ -224,6 +224,13 @@ int Checkfg(CommandToken* command)
     int flag = CheckArgument(command);
     if (flag != ArgumentValid)
         return flag;
+    if (command->argcount == 0) {
+    	command->argcount = 1;
+	command->arguments = (char **)malloc(sizeof(char *));
+	command->arguments[0] = (char *)malloc(sizeof(char) * 2);
+	command->arguments[0][0] = '1';
+	command->arguments[0][1] = '\0';
+    }
     if (command->argcount != 1)
         return CommandWrongNumArguments;
     return CommandValid;
