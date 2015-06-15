@@ -77,6 +77,7 @@ int CheckPipe(CommandToken*);
 int Checkcd(CommandToken*);
 int Checkjobs(CommandToken*);
 int Checkfg(CommandToken*);
+int Checkbg(CommandToken*);
 int Checkexit(CommandToken*);
 int CheckOther(CommandToken*);
 int CheckPathConstraint(CommandToken*);
@@ -97,6 +98,7 @@ void ProcessCommand(char command[CommandSize]);
 int Execute(CommandToken*);
 void Executejobs();
 void Executefg(CommandToken*);
+void Executebg(CommandToken*);
 void ExecuteExit();
 int ExecuteCommand(CommandToken* command, int, int, pid_t, int);
 int ExecuteList(CommandList*);
@@ -134,8 +136,11 @@ int CheckCommand(CommandToken* command)
             else
                 if (!strcmp(command->cname, "jobs"))
                     flag = Checkjobs(command);
-                else
-                    flag = Checkfg(command);
+                else      
+		    if (!strcmp(command->cname, "bg"))
+                        flag = Checkbg(command);
+		    else                    
+			flag = Checkfg(command);
         if (command->next)
             return CommandTooManyPipe;
         return flag;
@@ -221,6 +226,23 @@ int Checkjobs(CommandToken* command)
 }
 
 int Checkfg(CommandToken* command)
+{
+    int flag = CheckArgument(command);
+    if (flag != ArgumentValid)
+        return flag;
+    if (command->argcount == 0) {
+    	command->argcount = 1;
+	command->arguments = (char **)malloc(sizeof(char *));
+	command->arguments[0] = (char *)malloc(sizeof(char) * 2);
+	command->arguments[0][0] = '1';
+	command->arguments[0][1] = '\0';
+    }
+    if (command->argcount != 1)
+        return CommandWrongNumArguments;
+    return CommandValid;
+}
+
+int Checkbg(CommandToken* command)
 {
     int flag = CheckArgument(command);
     if (flag != ArgumentValid)
@@ -521,6 +543,11 @@ int Execute(CommandToken* command)
                 Executefg(command);
                 return ExecuteSuccess;
             }
+	    else if (!strcmp(command->cname, "bg"))
+            {
+                Executebg(command);
+                return ExecuteSuccess;
+            }
             else
                 if (!strcmp(command->cname, "exit"))
                 {
@@ -592,6 +619,28 @@ void Executefg(CommandToken* command)
         printf("fg:  no such job\n");
 }
 
+void Executebg(CommandToken* command)
+{
+    int i = 0, flag = false, arg = atoi(command->arguments[0]);
+    CommandList* list = commandlist;
+    while (list)
+    {
+        i++;
+        if (i == arg)
+        {
+            flag = true;
+            break;
+        }
+        list = list->next;
+    }
+    if (flag)
+    {
+        ResetCommandStatus(list);
+        kill(-list->gid, SIGCONT);
+    }
+    else
+        printf("bg:  no such job\n");
+}
 
 int ExecuteCommand(CommandToken* command, int in, int out, pid_t gid, int isBGJob)
 {
