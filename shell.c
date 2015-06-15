@@ -67,7 +67,9 @@ typedef struct MyList
 
 CommandList *commandlist;
 char commandline[CommandSize];
-char sherror[ErrorMsgSize];
+char sherror[ErrorMsgSize] = "\0";
+char inputfile[CommandSize];
+char outputfile[ErrorMsgSize] = "\0";
 pid_t shgid;
 FILE* fperr;
 
@@ -149,7 +151,7 @@ int CheckCommand(CommandToken* command)
         while (flag == CommandValid && command)
         {
             if (!strcmp(command->cname, "cd") || !strcmp(command->cname, "exit") || \
-                !strcmp(command->cname, "jobs") || !strcmp(command->cname, "fg"))
+                !strcmp(command->cname, "jobs") || !strcmp(command->cname, "fg") || !strcmp(command->cname, "fg"))
                 return CommandTooManyPipe;
             if (strcmp(command->cname, "|"))
                  flag = CheckOther(command);
@@ -264,7 +266,6 @@ int CheckOther(CommandToken* command)
     int i = 0;
     for (; i < (int)strlen(command->cname); i++)
         if (command->cname[i] == '|' || command->cname[i] == '*' || \
-            command->cname[i] == '>' || command->cname[i] == '<' || \
             command->cname[i] == '!' || command->cname[i] == '"' || \
             command->cname[i] == '\'' || command->cname[i] == '`')
             return CommandIllegalCharacter;
@@ -307,7 +308,19 @@ CommandToken* DeToken(char command[CommandSize], int* argu_num)
                 continue;
             if (1 == strlen(ptr) && ptr[0] == '|')
                 commandflag = 1;
-
+            if (ptr[0] == '<') {
+		if ((int)strlen(inputfile) != 0)
+		    return NULL;
+		if (1 == strlen(ptr)) {
+		    ptr = strtok(NULL, " ");
+		    if (ptr == NULL)
+	                return NULL;
+		} 
+		else 
+		    ptr++;
+		strcpy(inputfile, ptr);
+		continue;
+	    }
             if (commandflag)
             {
                 ctmp = cptr;
@@ -322,8 +335,7 @@ CommandToken* DeToken(char command[CommandSize], int* argu_num)
                 if (cptr->type != Pipe)
                     commandflag = 0;
             }
-            else
-            {
+            else {
                 cptr->arguments[cptr->argcount] = (char*)malloc(sizeof(char) * (strlen(ptr) + 1));
                 memset(cptr->arguments[cptr->argcount], 0, sizeof(char) * (strlen(ptr) + 1));
                 strcpy(cptr->arguments[cptr->argcount], ptr);
@@ -920,7 +932,6 @@ int main()
     signal(SIGTSTP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     signal(SIGTTOU, SIG_IGN);
-    setenv("PATH", "/bin:/usr/bin:.", 1);
  
     shgid = getpid();
     if (setpgid(shgid, shgid) < 0)
@@ -935,6 +946,8 @@ int main()
         memset(commandline, 0, sizeof(char) * CommandSize);
         memset(cpath, 0, sizeof(char) * PathSize);
         memset(sherror, 0, sizeof(char) * ErrorMsgSize);
+	inputfile[0] = '\0';
+	outputfile[0] = '\0';
         getcwd(cpath, PathSize - 1);
         printf("[3150 shell:%s]$ ", cpath);
         memset(sherror, 0, sizeof(sherror));
