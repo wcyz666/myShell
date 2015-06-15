@@ -47,8 +47,8 @@ typedef struct MyToken
     int type;
     int argcount;
     pid_t pid;
-    int flagover;
-    int flagsusp;
+    int isOver;
+    int isSusp;
     int status;
     char* cname;
     char** arguments;
@@ -59,6 +59,7 @@ typedef struct MyList
 {
     CommandToken* chead;
     pid_t gid;
+    int isBGJob;
     char command[CommandSize];
     struct MyList* next;
 } CommandList;
@@ -97,7 +98,7 @@ int Execute(CommandToken*);
 void Executejobs();
 void Executefg(CommandToken*);
 void ExecuteExit();
-int ExecuteCommand(CommandToken* command, int, int, pid_t);
+int ExecuteCommand(CommandToken* command, int, int, pid_t, int);
 int ExecuteList(CommandList*);
 void WaitCommandList(CommandList*);
 int StartCommandList(CommandList*, int);
@@ -280,6 +281,8 @@ CommandToken* DeToken(char command[CommandSize], int* argu_num)
         {
             if (1 == strlen(ptr) && ptr[0] == 10)
                 break;
+	    if (1 == strlen(ptr) && ptr[0] == '&')
+                continue;
             if (1 == strlen(ptr) && ptr[0] == '|')
                 commandflag = 1;
 
@@ -332,8 +335,8 @@ void InitCommand(CommandToken* command)
     memset(command->arguments, 0, sizeof(char *) * CommandSize / 2);
     command->next = NULL;
     command->pid = (pid_t)0;
-    command->flagover = 0;
-    command->flagsusp = 0;
+    command->isOver = 0;
+    command->isSusp = 0;
     command->status = -1;
 }
 
@@ -345,6 +348,10 @@ void InitList(CommandList* newlist, CommandToken* command)
     newlist->next = NULL;
     newlist->chead = command;
     strcpy(newlist->command, commandline);
+    if (commandline[(int)strlen(commandline) - 1] == '&')
+	newlist->isBGJob = 1;
+    else
+	newlist->isBGJob = 0;
     if (!head)
         commandlist = newlist;
     else
@@ -586,7 +593,7 @@ void Executefg(CommandToken* command)
 }
 
 
-int ExecuteCommand(CommandToken* command, int in, int out, pid_t gid)
+int ExecuteCommand(CommandToken* command, int in, int out, pid_t gid, int isBGJob)
 {
     pid_t pid;
     char** arg = PrepareArgument(command);
@@ -596,6 +603,7 @@ int ExecuteCommand(CommandToken* command, int in, int out, pid_t gid)
     signal(SIGQUIT, SIG_DFL);
     signal(SIGTSTP, SIG_DFL);
 
+
     setenv("PATH", "/bin:/usr/bin:.", 1);
 
     pid = getpid();
@@ -604,8 +612,13 @@ int ExecuteCommand(CommandToken* command, int in, int out, pid_t gid)
         printf("Error:  cannot set child process gid\n");
         exit(1);
     }
-    tcsetpgrp(STDIN_FILENO, gid);
-
+    if (!isBGJob) {
+    	tcsetpgrp(STDIN_FILENO, gid);
+    }
+    else { 
+        printf("aaa");
+        tcsetpgrp(STDIN_FILENO, shgid);
+    }
     if (in != STDIN_FILENO)
     {
         dup2(in, STDIN_FILENO);
@@ -656,7 +669,7 @@ int ExecuteList(CommandList* newlist)
             if (!newlist->gid)
                 newlist->gid = cpid;
             head->pid = cpid;
-            ExecuteCommand(head, in, out, newlist->gid);
+            ExecuteCommand(head, in, out, newlist->gid, newlist->isBGJob);
         }
         else
             if (cpid < 0)
@@ -689,12 +702,19 @@ int ExecuteList(CommandList* newlist)
 
 int StartCommandList(CommandList* list, int signal)
 {
-    int status, flagerror = false, flagsusp = false;
+    int status, flagerror = false, isSusp = false;
     CommandToken* command = NULL, *head = NULL;
-    tcsetpgrp(STDIN_FILENO, list->gid);
+
     if (signal == ResumeSignal)
         if (kill(- list->gid, SIGCONT) < 0)
             return ExecuteError;
+    if (list->isBGJob && signal == BeginSignal) {
+        tcsetpgrp(STDIN_FILENO, shgid);
+	return ExecuteSuccess;
+    }
+    else { 
+	tcsetpgrp(STDIN_FILENO, list->gid);
+    }
     
     WaitCommandList(list);
     
@@ -716,9 +736,9 @@ int StartCommandList(CommandList* list, int signal)
                 command = head;
             }
             else
-                if (head->flagsusp)
+                if (head->isSusp)
                 {
-                    flagsusp = true;
+                    isSusp = true;
                     break;
                 }
         head = head->next;
@@ -728,7 +748,7 @@ int StartCommandList(CommandList* list, int signal)
         if (flagerror)
             status = ExecuteError;
         else
-            if (flagsusp)
+            if (isSusp)
             {
                 printf("\n");
                 return ExecuteSuccess;
@@ -777,11 +797,13 @@ int CheckListOver(CommandList* list)
     CommandToken* head = list->chead;
     while (head)
     {
-        if (!head->flagover)
-            return false;
+        if (head->isOver) {
+	    kill(-list->gid, SIGPIPE);
+            return true;
+	}
         head = head->next;
     }
-    return true;
+    return false;
 }
 
 int CheckListSusp(CommandList* list)
@@ -789,7 +811,7 @@ int CheckListSusp(CommandList* list)
     CommandToken* head = list->chead;
     while (head)
     {
-        if (!head->flagsusp)
+        if (!head->isSusp) 
             return false;
         head = head->next;
     }
@@ -801,8 +823,8 @@ void ResetCommandStatus(CommandList* list)
     CommandToken* head = list->chead;
     while (head)
     {
-        head->flagsusp = 0;
-        head->flagover = 0;
+        head->isSusp = 0;
+        head->isOver = 0;
         head->status = 0;
         head = head->next;
     }
@@ -821,10 +843,10 @@ void ChangeCommandStatus(pid_t pid, int status)
             if (head->pid == pid)
             {
                 if (WIFSTOPPED(status))
-                    head->flagsusp = 1;
+                    head->isSusp = 1;
                 else
                 {
-                    head->flagover = 1;
+                    head->isOver = 1;
                     head->status = WEXITSTATUS(status);
                 }
                 return;
@@ -847,8 +869,7 @@ int main()
     signal(SIGTERM, SIG_IGN);
     signal(SIGQUIT, SIG_IGN);
     signal(SIGTSTP, SIG_IGN);
-    signal(SIGSTOP, SIG_DFL);
-    signal(SIGKILL, SIG_DFL);
+    signal(SIGPIPE, SIG_IGN);
     signal(SIGTTOU, SIG_IGN);
     setenv("PATH", "/bin:/usr/bin:.", 1);
  
