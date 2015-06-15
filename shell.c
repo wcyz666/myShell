@@ -705,9 +705,18 @@ int ExecuteList(CommandList* newlist)
     int pipefile[2];
     CommandToken* head = newlist->chead;
     int in, out;
+    FILE* fp;
     pid_t cpid;
 
-    in = STDIN_FILENO;
+    if ((int)strlen(inputfile)) {
+        fp = fopen(inputfile, "rb");
+        if (!fp || ((in = fileno(fp)) == -1)) {
+            strcpy(sherror, "Error:  cannot open input file.");
+            return ExecuteError;
+	}
+    }
+    else
+        in = STDIN_FILENO;
     while (head)
     {
         if (head->next)
