@@ -67,9 +67,9 @@ typedef struct MyList
 
 CommandList *commandlist;
 char commandline[CommandSize];
-char sherror[ErrorMsgSize] = "\0";
-char inputfile[CommandSize];
-char outputfile[ErrorMsgSize] = "\0";
+char sherror[ErrorMsgSize] = "";
+char inputfile[CommandSize] = "";
+char outputfile[ErrorMsgSize] = "";
 pid_t shgid;
 FILE* fperr;
 
@@ -267,6 +267,7 @@ int CheckOther(CommandToken* command)
     for (; i < (int)strlen(command->cname); i++)
         if (command->cname[i] == '|' || command->cname[i] == '*' || \
             command->cname[i] == '!' || command->cname[i] == '"' || \
+	    command->cname[i] == '>' || command->cname[i] == '<' || \
             command->cname[i] == '\'' || command->cname[i] == '`')
             return CommandIllegalCharacter;
     if (command->argcount)
@@ -319,6 +320,19 @@ CommandToken* DeToken(char command[CommandSize], int* argu_num)
 		else 
 		    ptr++;
 		strcpy(inputfile, ptr);
+		continue;
+	    }
+            if (ptr[0] == '>') {
+		if ((int)strlen(outputfile) != 0)
+		    return NULL;
+		if (1 == strlen(ptr)) {
+		    ptr = strtok(NULL, " ");
+		    if (ptr == NULL)
+	                return NULL;
+		} 
+		else 
+		    ptr++;
+		strcpy(outputfile, ptr);
 		continue;
 	    }
             if (commandflag)
@@ -677,7 +691,6 @@ int ExecuteCommand(CommandToken* command, int in, int out, pid_t gid, int isBGJo
     	tcsetpgrp(STDIN_FILENO, gid);
     }
     else { 
-        printf("aaa");
         tcsetpgrp(STDIN_FILENO, shgid);
     }
     if (in != STDIN_FILENO)
@@ -730,10 +743,19 @@ int ExecuteList(CommandList* newlist)
             else
                 out = pipefile[1];
         }
-        else
-            out = STDOUT_FILENO;
-        cpid = fork();
-        if (cpid == 0)
+        else {
+	    if ((int)strlen(outputfile)) {
+		fp = fopen(outputfile, "wb");
+		if (!fp || ((out = fileno(fp)) == -1)) {
+		    strcpy(sherror, "Error:  cannot open output file.");
+		    return ExecuteError;
+		}
+	    }
+	    else
+		out = STDOUT_FILENO;
+	}
+
+        if ((cpid = fork()) == 0)
         {
             cpid = getpid();
             if (!newlist->gid)
@@ -867,13 +889,12 @@ int CheckListOver(CommandList* list)
     CommandToken* head = list->chead;
     while (head)
     {
-        if (head->isOver) {
-	    kill(-list->gid, SIGPIPE);
-            return true;
+        if (!head->isOver) {
+            return false;
 	}
         head = head->next;
     }
-    return false;
+    return true;
 }
 
 int CheckListSusp(CommandList* list)
@@ -999,7 +1020,7 @@ int main()
         }
         else
         {
-            printf("\n");
+	    printf("\n");
             ExecuteExit();
         }
     }
