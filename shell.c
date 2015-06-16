@@ -70,6 +70,7 @@ char commandline[CommandSize];
 char sherror[ErrorMsgSize] = "";
 char inputfile[CommandSize] = "";
 char outputfile[ErrorMsgSize] = "";
+int isAppendTo = 0;
 pid_t shgid;
 FILE* fperr;
 
@@ -325,13 +326,17 @@ CommandToken* DeToken(char command[CommandSize], int* argu_num)
             if (ptr[0] == '>') {
 		if ((int)strlen(outputfile) != 0)
 		    return NULL;
-		if (1 == strlen(ptr)) {
+		if (1 == strlen(ptr) || (2 == strlen(ptr) && ptr[1] == '>')) {
+		    isAppendTo = (int)strlen(ptr) - 1; 
 		    ptr = strtok(NULL, " ");
 		    if (ptr == NULL)
 	                return NULL;
 		} 
-		else 
+		else {
 		    ptr++;
+		    if ((*ptr) == '>')
+		        ptr++;
+		}
 		strcpy(outputfile, ptr);
 		continue;
 	    }
@@ -745,7 +750,7 @@ int ExecuteList(CommandList* newlist)
         }
         else {
 	    if ((int)strlen(outputfile)) {
-		fp = fopen(outputfile, "wb");
+		fp = (isAppendTo) ? fopen(outputfile, "ab") : fopen(outputfile, "wb");
 		if (!fp || ((out = fileno(fp)) == -1)) {
 		    strcpy(sherror, "Error:  cannot open output file.");
 		    return ExecuteError;
@@ -978,6 +983,7 @@ int main()
         memset(sherror, 0, sizeof(char) * ErrorMsgSize);
 	inputfile[0] = '\0';
 	outputfile[0] = '\0';
+	isAppendTo = 0;
         getcwd(cpath, PathSize - 1);
         printf("[3150 shell:%s]$ ", cpath);
         memset(sherror, 0, sizeof(sherror));

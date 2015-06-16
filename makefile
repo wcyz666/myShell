@@ -1,3 +1,3 @@
 shell: shell.c
-	gcc -W -Wall shell.c -o shell.out
+	cc -W -Wall shell.c -o shell.out
 
