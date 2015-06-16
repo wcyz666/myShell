@@ -677,7 +677,6 @@ int ExecuteCommand(CommandToken* command, int in, int out, pid_t gid, int isBGJo
     	tcsetpgrp(STDIN_FILENO, gid);
     }
     else { 
-        printf("aaa");
         tcsetpgrp(STDIN_FILENO, shgid);
     }
     if (in != STDIN_FILENO)
@@ -854,6 +853,7 @@ void WaitCommandList(CommandList* list)
     do
     {
         pid = waitpid(WAIT_ANY, &status, WUNTRACED);
+	printf("%d\n", pid);
         if (pid < 0)
             return;
         ChangeCommandStatus(pid, status);
@@ -867,13 +867,12 @@ int CheckListOver(CommandList* list)
     CommandToken* head = list->chead;
     while (head)
     {
-        if (head->isOver) {
-	    kill(-list->gid, SIGPIPE);
-            return true;
+        if (!head->isOver) {
+            return false;
 	}
         head = head->next;
     }
-    return false;
+    return true;
 }
 
 int CheckListSusp(CommandList* list)
